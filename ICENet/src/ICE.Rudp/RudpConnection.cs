@@ -13,7 +13,7 @@ using ICENet.Core.Helpers;
 
 namespace ICENet.Rudp
 {
-    internal sealed class RudpConnection
+    internal sealed class RudpConnection : RudpPeer
     {
         private IPEndPoint _remoteEndPoint;
 
@@ -49,10 +49,6 @@ namespace ICENet.Rudp
             [(byte)RudpHeaders.Ack] = { }
         };
 
-        private readonly Handlers _handlers;
-
-        private readonly Senders _senders;
-
         #region Server Fields
 
         private Action<byte[], IPEndPoint> _send;
@@ -65,13 +61,7 @@ namespace ICENet.Rudp
 
         #region Connection Fields
 
-        private int _rtt;
-
-        private int _smoothRtt;
-
-        public int Ping => SmoothRtt / 2;
-
-        public int SmoothRtt => CalculateSmoothRtt(_rtt, ref _smoothRtt);
+        public int Ping => CalculateSmoothRtt() / 2;
 
         #endregion
 
@@ -87,26 +77,23 @@ namespace ICENet.Rudp
 
         #region Reability Fields
 
-        private RudpPool<RudpTimer> _rudpTimersPool;
+        private RudpPool<RudpPacket> _rudpTimersPool;
 
-        private ConcurrentDictionary<ushort, RudpTimer> _pendingTimers;
+        private ConcurrentDictionary<ushort, RudpPacket> _pendingTimers;
 
         private ushort _lastPacketId;
 
         private ushort NextPacketId { get { lock (_lock) { return _lastPacketId = (_lastPacketId == ushort.MaxValue) ? (ushort)1 : (ushort)(_lastPacketId + 1); } } }
 
-        private int NextResendTime => CalculateResendTime(SmoothRtt);
+        private int NextResendTime => CalculateResendTime();
 
         #endregion
 
         private readonly object _lock = new object();
 
-        public RudpConnection(IPEndPoint remoteEp, Action<byte[], IPEndPoint> send, Action<string> disconnect, RudpServer.DataHandler externalDataHandler, RudpPool<RudpTimer> rudpTimersPool)
+        public RudpConnection(IPEndPoint remoteEp, Action<byte[], IPEndPoint> send, Action<string> disconnect, RudpServer.DataHandler externalDataHandler, RudpPool<RudpPacket> rudpTimersPool)
         {
             _remoteEndPoint = remoteEp;
-
-            _handlers = new Handlers(this);
-            _senders = new Senders(this);
 
             _heartbeatWatch = new Stopwatch();
             _heartbeatWatch.Restart();
@@ -117,74 +104,66 @@ namespace ICENet.Rudp
             _externalDataHandled = externalDataHandler;
 
             _disconnectTimer = new Timer(_ => Disconnect("The connection has been lost"), null, Timeout.Infinite, Timeout.Infinite);
-            _heartbeatTimer = new Timer(_ => _senders.SendHearbeatRequest(), null, Timeout.Infinite, Timeout.Infinite);
+            _heartbeatTimer = new Timer(_ => SendHearbeatRequest(), null, Timeout.Infinite, Timeout.Infinite);
 
             _disconnectTimer.Change(DisconnectTimeout, Timeout.Infinite);
             _heartbeatTimer.Change(HeartbeatInterval, HeartbeatInterval);
 
             _rudpTimersPool = rudpTimersPool;
-            _pendingTimers = new ConcurrentDictionary<ushort, RudpTimer>();
+            _pendingTimers = new ConcurrentDictionary<ushort, RudpPacket>();
 
-            _internalDataHandlers[(byte)RudpHeaders.ConnectRequest] = _handlers.HandleConnectRequest;
-            _internalDataHandlers[(byte)RudpHeaders.HearbeatRequest] = _handlers.HandleHeartbeatRequest;
-            _internalDataHandlers[(byte)RudpHeaders.HeartbeatResponse] = _handlers.HandleHeartbeatResponse;
-            _internalDataHandlers[(byte)RudpHeaders.Unreliable] = _handlers.HandleUnreliable;
-            _internalDataHandlers[(byte)RudpHeaders.Reliable] = _handlers.HandleReliable;
-            _internalDataHandlers[(byte)RudpHeaders.Ack] = _handlers.HandleAck;
+            _internalDataHandlers[(byte)RudpHeaders.ConnectRequest] = HandleConnectRequest;
+            _internalDataHandlers[(byte)RudpHeaders.HearbeatRequest] = HandleHeartbeatRequest;
+            _internalDataHandlers[(byte)RudpHeaders.HeartbeatResponse] = HandleHeartbeatResponse;
+            _internalDataHandlers[(byte)RudpHeaders.Unreliable] = HandleUnreliable;
+            _internalDataHandlers[(byte)RudpHeaders.Reliable] = HandleReliable;
+            _internalDataHandlers[(byte)RudpHeaders.Ack] = HandleAck;
 
             IsConnected = true;
         }
 
-        private class Handlers
+        private void HandleConnectRequest(ref Data data)
         {
-            private readonly RudpConnection _connection;
-
-            public Handlers(RudpConnection connection)
-            {
-                _connection = connection;
-            }
-
-            public void HandleConnectRequest(ref Data data)
-            {
-                _connection._senders.SendConnectResponse();
-            }
-
-            public void HandleHeartbeatRequest(ref Data data)
-            {
-                _connection.RestartDisconnectTimer();
-
-                _connection._senders.SendHeartbeatResponse();
-            }
-
-            public void HandleHeartbeatResponse(ref Data data)
-            {
-                _connection._heartbeatWatch.Stop();
-                _connection._rtt = (int)Math.Min(_connection._heartbeatWatch.ElapsedMilliseconds, int.MaxValue);
-
-                _connection.RestartDisconnectTimer();
-            }
-
-            public void HandleUnreliable(ref Data data)
-            {
-                _connection._externalDataHandled?.Invoke(ref data, _connection);
-            }
-
-            public void HandleReliable(ref Data data)
-            {
-                ushort packetId = data.ReadUInt16();
-                _connection._senders.SendAck(packetId);
-                _connection._externalDataHandled?.Invoke(ref data, _connection);
-            }
-
-            public void HandleAck(ref Data data)
-            {
-                ushort packetId = data.ReadUInt16();
-                _connection._pendingTimers.TryRemove(packetId, out var timer);
-                _connection._rudpTimersPool.Release(timer);
-            }
-
+            SendConnectResponse();
         }
 
+        private void HandleHeartbeatRequest(ref Data data)
+        {
+            RestartDisconnectTimer();
+
+            SendHeartbeatResponse();
+        }
+
+        private void HandleHeartbeatResponse(ref Data data)
+        {
+            _heartbeatWatch.Stop();
+            _rtt = (int)Math.Min(_heartbeatWatch.ElapsedMilliseconds, int.MaxValue);
+
+            RestartDisconnectTimer();
+        }
+
+        private void HandleUnreliable(ref Data data)
+        {
+            _externalDataHandled?.Invoke(ref data, this);
+        }
+
+        private void HandleReliable(ref Data data)
+        {
+            ushort packetId = data.ReadUInt16();
+            SendAck(packetId);
+            _externalDataHandled?.Invoke(ref data, this);
+        }
+            
+        private void HandleAck(ref Data data)
+        {
+            ushort packetId = data.ReadUInt16();
+            if (
+                _pendingTimers == null ||
+                !_pendingTimers.TryRemove(packetId, out var timer))
+                return;
+            _rudpTimersPool.Release(timer);
+        }
+     
         public void Handle(ref Data data)
         {
             byte packetId = data.ReadByte();
@@ -198,94 +177,101 @@ namespace ICENet.Rudp
             RestartDisconnectTimer();
         }
 
-        private class Senders
+        private void SendConnectResponse()
         {
-            private readonly RudpConnection _connection;
-
-            public Senders(RudpConnection connection)
-            {
-                _connection = connection;
-            }
-
-            public void SendConnectResponse()
-            {
-                _connection.Send(GetHeaderBytes(RudpHeaders.ConnectResponse));
-            }
-
-            public void SendHearbeatRequest()
-            {
-                _connection.Send(GetHeaderBytes(RudpHeaders.HearbeatRequest));
-
-                _connection._heartbeatWatch.Reset();
-                _connection._heartbeatWatch.Start();
-            }
-
-            public void SendHeartbeatResponse()
-            {
-                _connection.Send(GetHeaderBytes(RudpHeaders.HeartbeatResponse));
-            }
-
-            public void SendUnreliable(ref Data data)
-            {
-                Data result = new Data(0);
-                result.Write(GetHeaderBytes(RudpHeaders.Unreliable));
-                result.Write(data.ToArray());
-
-                _connection.Send(result.ToArray());
-            }
-
-            public void SendReliable(Data data)
-            {
-                ushort packetId = _connection.NextPacketId;
-
-                void Resend()
-                {
-                    Data reliableData = new Data(0);
-                    reliableData.Write(GetHeaderBytes(RudpHeaders.Reliable));
-                    reliableData.Write(packetId);
-                    reliableData.Write(data.ToArray());
-
-                    _connection?.Send(reliableData.ToArray());
-                }
-
-                void Failure()
-                {
-                    Logger.Log(LogType.Error, "RELIABLE SEND ERROR", $"Reliable packet[Id: {packetId}] cannot not received by {_connection.RemoteEndPoint}!");
-
-                    _connection._pendingTimers.TryRemove(packetId, out var timer);
-                    _connection._rudpTimersPool.Release(timer);
-                }
-
-                RudpTimer timer = _connection._rudpTimersPool.Get();
-
-                timer.Interval = _connection.NextResendTime;
-                timer.MaxElaspedCount = MaxResendCount;
-
-                timer.Elapsed = Resend;
-                timer.Ended = Failure;
-
-                if (_connection._pendingTimers.TryAdd(packetId, timer) is false) { _connection._rudpTimersPool.Release(timer); return; }
-
-                Resend();
-
-                timer.Start();
-            }
-
-            public void SendAck(ushort packetId)
-            {
-                Data data = new Data(0);
-                data.Write(GetHeaderBytes(RudpHeaders.Ack));
-                data.Write(packetId);
-
-                _connection.Send(data.ToArray());
-            }
-
-            private byte[] GetHeaderBytes(RudpHeaders header) => new byte[1] { (byte)header };
+            Send(GetHeaderBytes(RudpHeaders.ConnectResponse));
         }
 
-        public void SendUnreliable(ref Data data) => _senders.SendUnreliable(ref data);
+        private void SendHearbeatRequest()
+        {
+            Send(GetHeaderBytes(RudpHeaders.HearbeatRequest));
 
-        public void SendReliable(ref Data data) => _senders.SendReliable(data);
+            _heartbeatWatch.Reset();
+            _heartbeatWatch.Start();
+        }
+
+        private void SendHeartbeatResponse()
+        {
+            Send(GetHeaderBytes(RudpHeaders.HeartbeatResponse));
+        }
+
+        public void SendUnreliable(ref Data data)
+        {
+            Data result = new Data(0);
+            result.Write(GetHeaderBytes(RudpHeaders.Unreliable));
+            result.Write(data.ToArray());
+
+            Send(result.ToArray());
+        }
+
+        public void SendReliable(Data data)
+        {
+            ushort packetId = NextPacketId;
+
+            Data send_data = new Data(0);
+            send_data.Write(GetHeaderBytes(RudpHeaders.Reliable));
+            send_data.Write(packetId);
+            send_data.Write(data.ToArray());
+
+            RudpPacket rudpPacket = _rudpTimersPool.Get();
+            rudpPacket.Interval = NextResendTime;
+            rudpPacket.MaxElaspedCount = MaxResendCount;
+            rudpPacket.PendingData = send_data;
+
+            rudpPacket.Elapsed = (Data data) =>
+            {
+                try
+                {
+                    Send(data.ToArray());
+                }
+                catch (NullReferenceException ex)
+                {
+                    Logger.Log(LogType.Error, "NULL-REFERENCE RELIABLE ERROR", ex.Message);
+                }
+                catch
+                {
+                }
+            };
+
+            rudpPacket.Ended = () =>
+            {
+                try
+                {
+                    Logger.Log(LogType.Error, "SERVER SENDER REABILITY", "reliable packet was not received by remote client!");
+
+                    if (
+                    _pendingTimers == null ||
+                    !_pendingTimers.TryRemove(packetId, out var failPacket))
+                        return;
+
+                    _rudpTimersPool?.Release(failPacket);
+                }
+                catch (NullReferenceException ex)
+                {
+                    Logger.Log(LogType.Error, "NULL-REFERENCE RELIABLE ERROR", ex.Message);
+                }
+                catch
+                {
+                }
+            };
+
+            if (_pendingTimers.TryAdd(packetId, rudpPacket) is false) 
+            { _rudpTimersPool.Release(rudpPacket); return; }
+
+            Send(data.ToArray());
+            rudpPacket.Start();
+        }
+
+        private void SendAck(ushort packetId)
+        {
+            Data data = new Data(0);
+            data.Write(GetHeaderBytes(RudpHeaders.Ack));
+            data.Write(packetId);
+
+            Send(data.ToArray());
+        }
+
+        private byte[] GetHeaderBytes(RudpHeaders header) => new byte[1] { (byte)header };
 
         private void Send(byte[] bytes) => _send.Invoke(bytes, RemoteEndPoint);
 
@@ -317,9 +303,8 @@ namespace ICENet.Rudp
                     _externalDataHandled = null!;
 
                     _rtt = 0;
-                    _smoothRtt = 0;
 
-                    foreach (var t in _pendingTimers.Values) _rudpTimersPool.Release(t); 
+                    foreach (var t in _pendingTimers.Values) _rudpTimersPool.Release(t);
                     _pendingTimers.Clear();
                     _pendingTimers = null!;
                     _rudpTimersPool = null!;
@@ -327,7 +312,7 @@ namespace ICENet.Rudp
                     _lastPacketId = 0;
                 }
             }
-            catch {  }
+            catch { }
 
             IsConnected = false;
 

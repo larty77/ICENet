@@ -144,7 +144,7 @@ namespace ICENet
 
             packet.Serialize(ref data);
 
-            if (packet.IsReliable is true) _client.SendReliable(ref data);
+            if (packet.IsReliable is true) _client.SendReliable(data);
 
             else _client.SendUnreliable(ref data);
         }

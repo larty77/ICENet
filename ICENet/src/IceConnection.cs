@@ -32,7 +32,7 @@ namespace ICENet
 
             packet.Serialize(ref data);
 
-            if (packet.IsReliable is true) _connection.SendReliable(ref data);
+            if (packet.IsReliable is true) _connection.SendReliable(data);
 
             else _connection.SendUnreliable(ref data);
         }

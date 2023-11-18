@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace ICENet.Core.Helpers
 {
-    internal enum LogType
+    public enum LogType
     {
         Info,
         Error,

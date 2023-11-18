@@ -42,7 +42,7 @@ namespace ICENet.Rudp
 
         #region Reability
 
-        private RudpPool<RudpTimer> _rudpTimersPool;
+        private RudpPool<RudpPacket> _rudpTimersPool;
 
         #endregion
 
@@ -57,7 +57,7 @@ namespace ICENet.Rudp
 
             _maxConnections = (maxConnections < 3 || maxConnections > 128) ? 4 : maxConnections;
 
-            _rudpTimersPool = new RudpPool<RudpTimer>();
+            _rudpTimersPool = new RudpPool<RudpPacket>();
         }
 
         public bool TryStart(IPEndPoint localEp) => _socket.TryStart(localEp);
