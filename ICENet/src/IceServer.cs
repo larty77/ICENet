@@ -57,8 +57,8 @@ namespace ICENet
                 lock (_lock) { while (_connections.ContainsKey(newIndex)) newIndex++; }
 
                 addedConnection.Id = newIndex;
-                _connections[newIndex] = addedConnection;
-
+                if (_connections.TryAdd(newIndex, addedConnection) is false) return;
+                
                 try { Added?.Invoke(addedConnection); Logger.Log(LogType.Info, "ICE-CONNECTED", $"Client added with index {newIndex}!"); }
                 catch (Exception exc) { Logger.Log(LogType.Error, "CONNECTED EVENT ERROR", exc.Message); }
             }
