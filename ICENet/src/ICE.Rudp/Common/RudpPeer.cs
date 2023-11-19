@@ -46,7 +46,7 @@ namespace ICENet.Rudp.Common
 
         protected int _rtt = 0;
 
-        protected int CalculateResendTime() => Math.Min(Math.Max(MinResendTime, _smoothRtt * 2), MaxResendTime);
+        protected int CalculateResendTime() => Math.Min(Math.Max(MinResendTime, CalculateSmoothRtt() * 2), MaxResendTime);
 
         protected int CalculateSmoothRtt() => _smoothRtt = (int)((0.2 * _rtt) + (0.8 * _smoothRtt));  
 
