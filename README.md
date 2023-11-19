@@ -3,7 +3,7 @@
 
 <h1 align="center" tabindex="-1" dir="auto"><a class="anchor" aria-hidden="true"></a>ICENet</h1>
 
-ICENet is as simple as possible written in c#. This implementation can be used in applications in the .NET environment, as well as in Unity.
+My convoluted implementation of a reliable protocol. If this is to be used, it should be used at most in a local network. This implementation can be used in applications in the .NET environment, as well as in Unity.
 
 <h2 tabindex="-1" dir="auto"><a class="anchor" aria-hidden="true"></a>My future additions</h2>
 
