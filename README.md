@@ -21,14 +21,6 @@ At the moment, the library implements a fairly convenient and clear system of pa
   <li style="font-size: smaller;">Ability to change the low-level transport</li>
 </ul>
 
-<h3>In the library I want to implement:</h3>
-
-<ul>
-  <li style="font-size: smaller;">Thread safety</li>
-  <li style="font-size: smaller;">Optimized and productive code</li>
-  <li style="font-size: smaller;">Needed more simple and good library architecture. So far it seems strange</li>
-</ul>
-
 <h2 tabindex="-1" dir="auto"><a class="anchor" aria-hidden="true"></a>How it works in Unity</h2>
 
 It just works. The main problem is that I do not know how to work with multi-threading, I will be honest, it causes me some incomprehension and difficulty. From the code in my library it is easy to understand that it runs in multiple threads in parallel, sometimes because of timers, sometimes because of asynchronous packet processing. Unity, unfortunately, has some problems with this. For example, Unity will complain if some of its methods are will execute from the main thread (e.g. Debug.Log has problems with this). But.... There is a solution to this problem, namely calling methods from a foreign thread in the main thread. There is a concept that describes this - Dispatcher. There are a lot of its implementations, for example for WPF applications. By the way, in unity this problem can be solved with coroutines (<a href = "https://github.com/PimDeWitte/UnityMainThreadDispatcher/blob/master/Runtime/UnityMainThreadDispatcher.cs">Good Example</a>). I have already experimented with it and I managed to make a wrapper over the library and remove all(maybe not all) problems associated with multithreading in Unity.
