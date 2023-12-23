@@ -1,9 +1,7 @@
 <p align="center">
-<center>
   
 ![logo](https://github.com/larty77/ICENet/assets/125078218/c28309e2-377a-450f-9440-8b7e8eaf335a)
   
-</center>
 <h1 align="center" tabindex="-1" dir="auto"><a class="anchor" aria-hidden="true"></a>ICENet</h1>
 
 My convoluted implementation of a reliable protocol. If this is to be used, it should be used at most in a local network. This implementation can be used in applications in the .NET environment, as well as in Unity.
